@@ -86,6 +86,8 @@ SEEKDB_BASE_DIR=$PWD/build/my-instance SEEKDB_PORT=2882 ./start.sh
 `./sql.sh` 会把参数原样传给 `deps/3rd/u01/obclient/bin/obclient`，因此 `-e`、`-N -s`、`-D` 等都可直接使用。
 连接其他端口：`SEEKDB_PORT=2882 ./sql.sh`。
 
+> `sql.sh` 会自动设置 `TERMINFO_DIRS`，修复 WSL/Ubuntu 下 obclient 的 Backspace 与方向键异常，详见 6.2。
+
 ### 3.3 停止
 
 ```bash
@@ -317,7 +319,19 @@ sudo apt-get install -y libaio1
 
 方式 A 必须在**启动进程的 shell** 中 export，子进程才能继承。
 
-### 6.2 `wait-ready` 超时
+### 6.2 交互客户端中 Backspace 只追加空格、方向键失效
+
+现象：在 Windows Terminal + WSL 里运行 `obclient`，按 Backspace 不会删除字符，而是在行尾追加空格；上下方向键也无法调出历史。
+
+原因：随 `obclient` 静态链接的 readline 只在 `/usr/share/terminfo` 查找终端能力，而 Debian/Ubuntu 的 terminfo 实际位于 `/lib/terminfo`，目录为空时 readline 拿不到光标左移能力，只能退化为输出空格。
+
+`sql.sh` 已自动设置 `TERMINFO_DIRS`，正常不会遇到。手动启动 `obclient` 时：
+
+```bash
+export TERMINFO_DIRS=/lib/terminfo:/usr/share/terminfo:/etc/terminfo
+```
+
+### 6.3 `wait-ready` 超时
 
 先看实例日志：
 
@@ -329,23 +343,23 @@ ls "$base/log/"
 
 常见原因是 6.1 的库缺失，或端口被占用。`wait-ready` 默认等待 180 秒，超时本身不代表新增错误。
 
-### 6.3 链接阶段被 OOM kill
+### 6.4 链接阶段被 OOM kill
 
 降低并发：`./build.py build -j4 seekdb`；或先提高 WSL 内存上限再重试。
 
-### 6.4 `base-dir` 被拒绝
+### 6.5 `base-dir` 被拒绝
 
 `sdb.py` 不允许把 HOME、当前目录及其父目录、文件系统根作为实例目录，也不接受符号链接。换一个普通子目录即可。
 
-### 6.5 向量维度不匹配
+### 6.6 向量维度不匹配
 
 `VECTOR(N)` 的 N 必须与插入/查询字面量中的元素个数一致。
 
-### 6.6 `APPROXIMATE` 报错
+### 6.7 `APPROXIMATE` 报错
 
 该列没有向量索引，或索引不是 `Index_type=VECTOR`。先用 `SHOW INDEX FROM <table>;` 确认。
 
-### 6.7 不使用脚本时的等价命令
+### 6.8 不使用脚本时的等价命令
 
 ```bash
 python3 tools/deploy/sdb.py start \
@@ -354,6 +368,7 @@ python3 tools/deploy/sdb.py start \
 python3 tools/deploy/sdb.py wait-ready \
   --client deps/3rd/u01/obclient/bin/obclient \
   --base-dir "$PWD/build/dev-instance" --port 2881
+export TERMINFO_DIRS=/lib/terminfo:/usr/share/terminfo:/etc/terminfo
 ./deps/3rd/u01/obclient/bin/obclient -h127.0.0.1 -P2881 -uroot -A
 python3 tools/deploy/sdb.py stop --base-dir "$PWD/build/dev-instance"
 ```
